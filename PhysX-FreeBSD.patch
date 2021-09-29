@@ -1,0 +1,2438 @@
+diff --git a/externals/cmakemodules/GetCompilerAndPlatform.cmake b/externals/cmakemodules/GetCompilerAndPlatform.cmake
+index 3ab5cfbf..1168475b 100644
+--- a/externals/cmakemodules/GetCompilerAndPlatform.cmake
++++ b/externals/cmakemodules/GetCompilerAndPlatform.cmake
+@@ -126,6 +126,8 @@ FUNCTION (GetPlatformBinName PLATFORM_BIN_NAME LIBPATH_SUFFIX)
+ 		ELSEIF(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
+ 			SET(RETVAL "linux.aarch64")
+ 		ENDIF()
++  ELSEIF(TARGET_BUILD_PLATFORM STREQUAL "freebsd")
++    SET(RETVAL "freebsd.clang")
+ 	ENDIF()
+ 
+ 	SET(${PLATFORM_BIN_NAME} ${RETVAL} PARENT_SCOPE)
+diff --git a/physx/buildtools/cmake_generate_projects.py b/physx/buildtools/cmake_generate_projects.py
+index ebd30496..b2272f95 100644
+--- a/physx/buildtools/cmake_generate_projects.py
++++ b/physx/buildtools/cmake_generate_projects.py
+@@ -116,6 +116,8 @@ class CMakePreset:
+     def isMultiConfigPlatform(self):
+         if self.targetPlatform == 'linux':
+             return False
++        elif self.targetPlatform == 'freebsd':
++            return False
+         elif self.targetPlatform == 'linuxAarch64':
+             return False
+         elif self.targetPlatform == 'android':
+@@ -163,6 +165,8 @@ class CMakePreset:
+             outString = outString + '-G \"MinGW Makefiles\"'
+         elif self.targetPlatform == 'linux':
+             outString = outString + '-G \"Unix Makefiles\"'
++        elif self.targetPlatform == 'freebsd':
++            outString = outString + '-G \"Unix Makefiles\"'
+         elif self.targetPlatform == 'linuxAarch64':
+             outString = outString + '-G \"Unix Makefiles\"'
+ 
+@@ -302,6 +306,19 @@ class CMakePreset:
+                     outString = outString + ' -DCMAKE_C_COMPILER=clang'
+                     outString = outString + ' -DCMAKE_CXX_COMPILER=clang++'
+             return outString
++        elif self.targetPlatform == 'freebsd':
++            outString = outString + ' -DTARGET_BUILD_PLATFORM=freebsd'
++            outString = outString + ' -DPX_OUTPUT_ARCH=x86'
++            if self.compiler == 'clang':
++                if os.environ.get('PM_clang_PATH') is not None:
++                    outString = outString + ' -DCMAKE_C_COMPILER=' + \
++                        os.environ['PM_clang_PATH'] + '/usr/bin/clang'
++                    outString = outString + ' -DCMAKE_CXX_COMPILER=' + \
++                        os.environ['PM_clang_PATH'] + '/usr/bin/clang++'
++                else:
++                    outString = outString + ' -DCMAKE_C_COMPILER=clang'
++                    outString = outString + ' -DCMAKE_CXX_COMPILER=clang++'
++            return outString
+         elif self.targetPlatform == 'linuxAarch64':
+             outString = outString + ' -DTARGET_BUILD_PLATFORM=linux'
+             outString = outString + ' -DPX_OUTPUT_ARCH=arm'
+@@ -393,7 +410,7 @@ def presetProvided(pName):
+             # run the cmake script
+             #print('Cmake params:' + cmakeParams)
+             os.chdir(os.path.join(os.environ['PHYSX_ROOT_DIR'], outputDir))
+-            # print(cmakeExec + ' \"' + os.environ['PHYSX_ROOT_DIR'] + '/compiler/' + cmakeMasterDir + '\"' + cmakeParams + ' -DCMAKE_BUILD_TYPE=' + config)
++            print(cmakeExec + ' \"' + os.environ['PHYSX_ROOT_DIR'] + '/compiler/' + cmakeMasterDir + '\"' + cmakeParams + ' -DCMAKE_BUILD_TYPE=' + config)
+             os.system(cmakeExec + ' \"' + os.environ['PHYSX_ROOT_DIR'] + '/compiler/' +
+                       cmakeMasterDir + '\"' + cmakeParams + ' -DCMAKE_BUILD_TYPE=' + config)
+             os.chdir(os.environ['PHYSX_ROOT_DIR'])
+diff --git a/physx/buildtools/presets/public/freebsd.xml b/physx/buildtools/presets/public/freebsd.xml
+new file mode 100644
+index 00000000..4acc56a4
+--- /dev/null
++++ b/physx/buildtools/presets/public/freebsd.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="utf-8"?>
++<preset name="freebsd" comment="FreeBSD clang PhysX SDK general settings">
++  <platform targetPlatform="freebsd" compiler="clang" />
++  <CMakeSwitches>
++    <cmakeSwitch name="PX_BUILDSNIPPETS" value="False" comment="Generate the snippets" />
++    <cmakeSwitch name="PX_BUILDPUBLICSAMPLES" value="False" comment="Generate the samples" />
++    <cmakeSwitch name="PX_GENERATE_STATIC_LIBRARIES" value="False" comment="Generate static libs" />    
++  </CMakeSwitches>
++  <CMakeParams>
++    <cmakeParam name="CMAKE_INSTALL_PREFIX" value="install/freebsd/PhysX" comment="Install path relative to PhysX SDK root" />
++  </CMakeParams>
++</preset>
+diff --git a/physx/generate_projects.sh b/physx/generate_projects.sh
+index 245f681d..e62d537f 100755
+--- a/physx/generate_projects.sh
++++ b/physx/generate_projects.sh
+@@ -1,4 +1,5 @@
+-#!/bin/bash +x
++#!/usr/local/bin/bash +x
++######!/bin/bash +x
+ 
+ export PHYSX_ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ export PM_PxShared_PATH="$PHYSX_ROOT_DIR/../pxshared"
+@@ -11,9 +12,9 @@ export PM_PATHS="$PM_opengllinux_PATH;$PM_TARGA_PATH;$PM_CGLINUX_PATH;$PM_GLEWLI
+ 
+ 
+ cd "$( dirname "${BASH_SOURCE[0]}" )"
+-python ./buildtools/cmake_generate_projects.py $1
++python3.8 ./buildtools/cmake_generate_projects.py $1
+ status=$?
+ if [ "$status" -ne "0" ]; then
+ echo "Error $status"
+ exit 1
+-fi
+\ No newline at end of file
++fi
+diff --git a/physx/include/PxConfig.h b/physx/include/PxConfig.h
+new file mode 100644
+index 00000000..493c7b36
+--- /dev/null
++++ b/physx/include/PxConfig.h
+@@ -0,0 +1,34 @@
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions
++// are met:
++//  * Redistributions of source code must retain the above copyright
++//    notice, this list of conditions and the following disclaimer.
++//  * Redistributions in binary form must reproduce the above copyright
++//    notice, this list of conditions and the following disclaimer in the
++//    documentation and/or other materials provided with the distribution.
++//  * Neither the name of NVIDIA CORPORATION nor the names of its
++//    contributors may be used to endorse or promote products derived
++//    from this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++//
++// Copyright (c) 2008-2021 NVIDIA Corporation. All rights reserved.
++
++
++#ifndef PX_CONFIG
++#define PX_CONFIG
++
++
++
++#endif  // PX_CONFIG
+diff --git a/physx/include/PxFoundation.h b/physx/include/PxFoundation.h
+index 9604c421..c47a96b0 100644
+--- a/physx/include/PxFoundation.h
++++ b/physx/include/PxFoundation.h
+@@ -128,14 +128,14 @@ PxCreateFoundation(physx::PxU32 version, physx::PxAllocatorCallback& allocator,
+ @see PxCreateFoundation()
+ */
+ #if PX_CLANG
+-#if PX_LINUX
++#if PX_LINUX || PX_FREEBSD
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+ #endif // PX_LINUX
+ #endif // PX_CLANG
+ PX_C_EXPORT PX_FOUNDATION_API physx::PxFoundation& PX_CALL_CONV PxGetFoundation();
+ #if PX_CLANG
+-#if PX_LINUX
++#if PX_LINUX || PX_FREEBSD
+ #pragma clang diagnostic pop
+ #endif // PX_LINUX
+ #endif // PX_CLANG
+diff --git a/physx/include/extensions/PxDefaultAllocator.h b/physx/include/extensions/PxDefaultAllocator.h
+index 816a5bab..695e1915 100644
+--- a/physx/include/extensions/PxDefaultAllocator.h
++++ b/physx/include/extensions/PxDefaultAllocator.h
+@@ -40,7 +40,7 @@
+ 
+ #include <stdlib.h>
+ 
+-#if PX_WINDOWS_FAMILY || PX_LINUX_FAMILY || PX_SWITCH
++#if PX_WINDOWS_FAMILY || PX_LINUX_FAMILY || PX_SWITCH || PX_FREEBSD
+ #include <malloc.h>
+ #endif
+ 
+@@ -60,7 +60,7 @@ PX_FORCE_INLINE void platformAlignedFree(void* ptr)
+ {
+ 	_aligned_free(ptr);
+ }
+-#elif PX_LINUX_FAMILY || PX_SWITCH
++#elif PX_LINUX_FAMILY || PX_SWITCH || PX_FREEBSD
+ PX_FORCE_INLINE void* platformAlignedAlloc(size_t size)
+ {
+ 	return ::memalign(16, size);
+diff --git a/physx/source/compiler/cmake/freebsd/CMakeLists.txt b/physx/source/compiler/cmake/freebsd/CMakeLists.txt
+new file mode 100644
+index 00000000..b709b9f9
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/CMakeLists.txt
+@@ -0,0 +1,120 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++STRING(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWERCASE)
++
++#TODO: Fix warnings
++SET(CLANG_WARNINGS "-ferror-limit=0 -Wall -Wextra -Wstrict-aliasing=2 -Weverything -Wno-documentation-deprecated-sync -Wno-documentation-unknown-command -Wno-gnu-anonymous-struct -Wno-undef -Wno-unused-function -Wno-nested-anon-types -Wno-float-equal -Wno-padded -Wno-weak-vtables -Wno-cast-align -Wno-conversion -Wno-missing-noreturn -Wno-missing-variable-declarations -Wno-shift-sign-overflow -Wno-covered-switch-default -Wno-exit-time-destructors -Wno-global-constructors -Wno-missing-prototypes -Wno-unreachable-code -Wno-unused-macros -Wno-unused-member-function -Wno-used-but-marked-unused -Wno-weak-template-vtables -Wno-deprecated -Wno-non-virtual-dtor -Wno-invalid-noreturn -Wno-return-type-c-linkage -Wno-reserved-id-macro -Wno-c++98-compat-pedantic -Wno-unused-local-typedef -Wno-old-style-cast -Wno-newline-eof -Wno-unused-private-field -Wno-format-nonliteral -Wno-implicit-fallthrough -Wno-undefined-reinterpret-cast -Wno-disabled-macro-expansion -Wno-zero-as-null-pointer-constant -Wno-shadow -Wno-unknown-warning-option -Wno-atomic-implicit-seq-cst -Wno-extra-semi-stmt")
++SET(GCC_WARNINGS "-Wall -Wno-invalid-offsetof -Wno-uninitialized")
++
++IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
++	# using Clang	  
++	SET(PHYSX_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti -fno-exceptions -ffunction-sections -fdata-sections -fstrict-aliasing ${CLANG_WARNINGS}" CACHE INTERAL "PhysX CXX")
++ELSEIF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
++	SET(PHYSX_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti -fno-exceptions -ffunction-sections -fdata-sections -fno-strict-aliasing ${GCC_WARNINGS}" CACHE INTERAL "PhysX CXX")
++ENDIF()
++
++# Build debug info for all configurations
++SET(PHYSX_CXX_FLAGS_DEBUG   "-O0 -g3 -gdwarf-2" CACHE INTERNAL "PhysX Debug CXX Flags")
++SET(PHYSX_CXX_FLAGS_CHECKED "-O3 -g3 -gdwarf-2" CACHE INTERNAL "PhysX Checked CXX Flags")
++SET(PHYSX_CXX_FLAGS_PROFILE "-O3" CACHE INTERNAL "PhysX Profile CXX Flags")
++SET(PHYSX_CXX_FLAGS_RELEASE "-O3" CACHE INTERNAL "PhysX Release CXX Flags")
++
++# These flags are local to the directory the CMakeLists.txt is in, so don't get carried over to OTHER CMakeLists.txt (thus the CACHE variables above)
++SET(CMAKE_CXX_FLAGS ${PHYSX_CXX_FLAGS})
++
++SET(CMAKE_CXX_FLAGS_DEBUG   ${PHYSX_CXX_FLAGS_DEBUG})
++SET(CMAKE_CXX_FLAGS_CHECKED ${PHYSX_CXX_FLAGS_CHECKED})
++SET(CMAKE_CXX_FLAGS_PROFILE ${PHYSX_CXX_FLAGS_PROFILE})
++SET(CMAKE_CXX_FLAGS_RELEASE ${PHYSX_CXX_FLAGS_RELEASE})
++
++
++# Controls PX_NVTX for all projects
++SET(NVTX_FLAG "PX_NVTX=0")
++
++IF(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
++	SET(CUDA_FLAG "DISABLE_CUDA_PHYSX")
++ENDIF()
++
++SET(PHYSX_LINUX_COMPILE_DEFS "${CUDA_FLAG};${PHYSX_AUTOBUILD}" CACHE INTERNAL "Base PhysX preprocessor definitions")
++
++SET(PHYSX_LINUX_DEBUG_COMPILE_DEFS   "NDEBUG;PX_DEBUG=1;PX_CHECKED=1;${NVTX_FLAG};PX_SUPPORT_PVD=1"  CACHE INTERNAL "Debug PhysX preprocessor definitions")
++SET(PHYSX_LINUX_CHECKED_COMPILE_DEFS "NDEBUG;PX_CHECKED=1;${NVTX_FLAG};PX_SUPPORT_PVD=1" CACHE INTERNAL "Checked PhysX preprocessor definitions")
++SET(PHYSX_LINUX_PROFILE_COMPILE_DEFS "NDEBUG;PX_PROFILE=1;${NVTX_FLAG};PX_SUPPORT_PVD=1"  CACHE INTERNAL "Profile PhysX preprocessor definitions")
++SET(PHYSX_LINUX_RELEASE_COMPILE_DEFS "NDEBUG;PX_SUPPORT_PVD=0" CACHE INTERNAL "Release PhysX preprocessor definitions")
++
++
++# Include all of the projects
++IF(PX_GENERATE_GPU_PROJECTS_ONLY)
++	INCLUDE(PhysXCommon.cmake)
++	INCLUDE(PhysXFoundation.cmake)
++
++	SET_PROPERTY(TARGET PhysXCommon PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXFoundation PROPERTY FOLDER "PhysX SDK")
++ELSE()
++	INCLUDE(PhysXFoundation.cmake)
++	INCLUDE(LowLevel.cmake)
++	INCLUDE(LowLevelAABB.cmake)
++	INCLUDE(LowLevelDynamics.cmake)
++	INCLUDE(PhysX.cmake)
++	INCLUDE(PhysXCharacterKinematic.cmake)
++	INCLUDE(PhysXCommon.cmake)
++	INCLUDE(PhysXCooking.cmake)
++	INCLUDE(PhysXExtensions.cmake)
++	INCLUDE(PhysXVehicle.cmake)
++	INCLUDE(SceneQuery.cmake)
++	INCLUDE(SimulationController.cmake)
++	INCLUDE(FastXml.cmake)
++	INCLUDE(PhysXPvdSDK.cmake)
++	INCLUDE(PhysXTask.cmake)
++
++	# Set folder PhysX SDK to all common SDK source projects
++	SET_PROPERTY(TARGET PhysX PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXCharacterKinematic PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXCommon PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXCooking PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXExtensions PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXVehicle PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET LowLevel PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET LowLevelAABB PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET LowLevelDynamics PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET SceneQuery PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET SimulationController PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET FastXml PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXPvdSDK PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXTask PROPERTY FOLDER "PhysX SDK")
++	SET_PROPERTY(TARGET PhysXFoundation PROPERTY FOLDER "PhysX SDK")	
++	
++	SET(PHYSXDISTRO_LIBS PhysXFoundation PhysX PhysXCharacterKinematic PhysXPvdSDK PhysXCommon PhysXCooking PhysXExtensions PhysXVehicle)
++	
++	INSTALL(
++		TARGETS ${PHYSXDISTRO_LIBS}
++		EXPORT PhysXSDK
++		DESTINATION $<$<CONFIG:debug>:${PX_ROOT_LIB_DIR}/debug>$<$<CONFIG:release>:${PX_ROOT_LIB_DIR}/release>$<$<CONFIG:checked>:${PX_ROOT_LIB_DIR}/checked>$<$<CONFIG:profile>:${PX_ROOT_LIB_DIR}/profile>	
++		)
++	
++ENDIF()
+diff --git a/physx/source/compiler/cmake/freebsd/FastXml.cmake b/physx/source/compiler/cmake/freebsd/FastXml.cmake
+new file mode 100644
+index 00000000..4c02ac3c
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/FastXml.cmake
+@@ -0,0 +1,43 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build FastXml
++#
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(FASTXML_COMPILE_DEFS 
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(FASTXML_LIBTYPE OBJECT)
+diff --git a/physx/source/compiler/cmake/freebsd/LowLevel.cmake b/physx/source/compiler/cmake/freebsd/LowLevel.cmake
+new file mode 100644
+index 00000000..e0181423
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/LowLevel.cmake
+@@ -0,0 +1,67 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build LowLevel
++#
++
++
++SET(LOWLEVEL_PLATFORM_INCLUDES
++	${PHYSX_SOURCE_DIR}/Common/src/linux
++	${PHYSX_SOURCE_DIR}/LowLevel/software/include/linux
++	${PHYSX_SOURCE_DIR}/LowLevelDynamics/include/linux
++	${PHYSX_SOURCE_DIR}/LowLevel/common/include/pipeline/linux
++)
++
++SET(LOWLEVEL_COMPILE_DEFS
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB
++)
++
++IF(PX_GENERATE_GPU_STATIC_LIBRARIES)
++	SET(LOWLEVEL_GPU_LIBTYPE_DEFS 
++		PX_PHYSX_GPU_STATIC;
++	)
++ENDIF()
++
++SET(LOWLEVEL_COMPILE_DEFS
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB;${LOWLEVEL_GPU_LIBTYPE_DEFS}
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(LOWLEVEL_PLATFORM_LINK_FLAGS " ")
++
++SET(LOWLEVEL_LIBTYPE OBJECT)
++
++# NOTE: Is this a UE4 specific change?
++# enable -fPIC so we can link static libs with the editor
++#SET_TARGET_PROPERTIES(LowLevel PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+diff --git a/physx/source/compiler/cmake/freebsd/LowLevelAABB.cmake b/physx/source/compiler/cmake/freebsd/LowLevelAABB.cmake
+new file mode 100644
+index 00000000..25c9e61f
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/LowLevelAABB.cmake
+@@ -0,0 +1,53 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build LowLevelAABB
++#
++
++SET(LOWLEVELAABB_PLATFORM_INCLUDES
++	${PHYSX_SOURCE_DIR}/Common/src/linux
++	${PHYSX_SOURCE_DIR}/LowLevelAABB/linux/include
++	${PHYSX_SOURCE_DIR}/GpuBroadPhase/include
++	${PHYSX_SOURCE_DIR}/GpuBroadPhase/src
++)
++
++
++SET(LOWLEVELAABB_COMPILE_DEFS
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(LOWLEVELAABB_LIBTYPE OBJECT)
++
++SET(LOWLEVELAABB_PLATFORM_LINK_FLAGS " ")
+diff --git a/physx/source/compiler/cmake/freebsd/LowLevelDynamics.cmake b/physx/source/compiler/cmake/freebsd/LowLevelDynamics.cmake
+new file mode 100644
+index 00000000..5545fb5b
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/LowLevelDynamics.cmake
+@@ -0,0 +1,53 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build LowLevelDynamics
++#
++
++
++SET(LOWLEVELDYNAMICS_PLATFORM_INCLUDES
++	${PHYSX_SOURCE_DIR}/common/src/linux
++	${PHYSX_SOURCE_DIR}/lowlevel/software/include/linux
++	${PHYSX_SOURCE_DIR}/lowleveldynamics/include/linux
++	${PHYSX_SOURCE_DIR}/lowlevel/common/include/pipeline/linux
++)
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(LOWLEVELDYNAMICS_COMPILE_DEFS
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(LOWLEVELDYNAMICS_LIBTYPE OBJECT)
++
+diff --git a/physx/source/compiler/cmake/freebsd/PhysX.cmake b/physx/source/compiler/cmake/freebsd/PhysX.cmake
+new file mode 100644
+index 00000000..48a4e53a
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysX.cmake
+@@ -0,0 +1,117 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysX (PROJECT not SOLUTION)
++#
++
++SET(PHYSX_GPU_HEADERS
++	${PHYSX_ROOT_DIR}/include/gpu/PxGpu.h
++)
++SOURCE_GROUP(include\\gpu FILES ${PHYSX_GPU_HEADERS})
++
++SET(PHYSX_CUDACONTEXT_MANAGER_GPU_HEADERS
++	${PHYSX_ROOT_DIR}/include/cudamanager/PxCudaContextManager.h
++	${PHYSX_ROOT_DIR}/include/cudamanager/PxCudaMemoryManager.h
++)
++SOURCE_GROUP(include\\cudamanager FILES ${PHYSX_CUDACONTEXT_MANAGER_GPU_HEADERS})
++
++SET(PHYSX_PLATFORM_INCLUDES
++	${NVTOOLSEXT_INCLUDE_DIRS}
++)
++
++SET(PHYSX_PLATFORM_OBJECT_FILES
++	$<TARGET_OBJECTS:LowLevel>
++	$<TARGET_OBJECTS:LowLevelAABB>
++	$<TARGET_OBJECTS:LowLevelDynamics>
++	$<TARGET_OBJECTS:PhysXTask>
++	$<TARGET_OBJECTS:SceneQuery>
++	$<TARGET_OBJECTS:SimulationController>	
++)
++
++SET(PHYSX_PLATFORM_SRC_FILES
++	${PX_SOURCE_DIR}/device/linux/PhysXIndicatorLinux.cpp
++	${PX_SOURCE_DIR}/gpu/PxGpu.cpp
++	${PX_SOURCE_DIR}/gpu/PxPhysXGpuModuleLoader.cpp
++	
++	${PHYSX_PLATFORM_OBJECT_FILES}
++)
++
++INSTALL(FILES ${PHYSX_GPU_HEADERS} DESTINATION include/gpu)
++INSTALL(FILES ${PHYSX_CUDACONTEXT_MANAGER_GPU_HEADERS} DESTINATION include/cudamanager)
++
++IF(PX_GENERATE_STATIC_LIBRARIES)
++	SET(PHYSX_LIBTYPE STATIC)
++	SET(PXPHYSX_LIBTYPE_DEFS 
++		PX_PHYSX_STATIC_LIB;
++	)	
++ELSE()
++	SET(PHYSX_LIBTYPE SHARED)
++	SET(PXPHYSX_LIBTYPE_DEFS
++		PX_PHYSX_CORE_EXPORTS;
++	)
++ENDIF()
++
++IF(PX_GENERATE_GPU_STATIC_LIBRARIES)
++	SET(PXPHYSX_GPU_DEFS PX_PHYSX_GPU_STATIC)
++ENDIF()
++
++# Set default PhysXGpu shared library name
++IF(NV_USE_GAMEWORKS_OUTPUT_DIRS)
++	IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
++		SET(BITNESS_STRING "64")
++	ELSE()
++		SET(BITNESS_STRING "32")
++	ENDIF()
++	SET(PHYSX_GPU_SHARED_LIB_NAME_DEF PX_PHYSX_GPU_SHARED_LIB_NAME=libPhysXGpu_${BITNESS_STRING}.so)
++ELSE()
++	SET(CONFIG_STRING $<$<CONFIG:debug>:DEBUG>$<$<CONFIG:checked>:CHECKED>$<$<CONFIG:profile>:PROFILE>)
++	IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
++		SET(BITNESS_STRING "x64")
++	ELSE()
++		SET(BITNESS_STRING "x86")
++	ENDIF()
++	SET(PHYSX_GPU_SHARED_LIB_NAME_DEF PX_PHYSX_GPU_SHARED_LIB_NAME=libPhysXGpu${CONFIG_STRING}_${BITNESS_STRING}.so)
++ENDIF()
++
++SET(PHYSX_COMPILE_DEFS
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};${PXPHYSX_LIBTYPE_DEFS};${PHYSX_GPU_SHARED_LIB_NAME_DEF};${PXPHYSX_GPU_DEFS}
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(PHYSX_PLATFORM_LINK_FLAGS " ")
++SET(PHYSX_PLATFORM_LINK_FLAGS_DEBUG " ")
++SET(PHYSX_PLATFORM_LINK_FLAGS_CHECKED " ")
++SET(PHYSX_PLATFORM_LINK_FLAGS_PROFILE " ")
++SET(PHYSX_PLATFORM_LINK_FLAGS_RELEASE " ")
++
++SET(PHYSX_PLATFORM_LINKED_LIBS dl)
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXCharacterKinematic.cmake b/physx/source/compiler/cmake/freebsd/PhysXCharacterKinematic.cmake
+new file mode 100644
+index 00000000..acde32c9
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXCharacterKinematic.cmake
+@@ -0,0 +1,49 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXCharacterKinematic
++#
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(PHYSXCHARACTERKINEMATICS_COMPILE_DEFS 
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(PHYSXCHARACTERKINEMATIC_LIBTYPE STATIC)
++
++
++# enable -fPIC so we can link static libs with the editor
++#SET_TARGET_PROPERTIES(PhysXCharacterKinematic PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
++
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXCommon.cmake b/physx/source/compiler/cmake/freebsd/PhysXCommon.cmake
+new file mode 100644
+index 00000000..b3b59a38
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXCommon.cmake
+@@ -0,0 +1,65 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXCommon
++#
++
++SET(PXCOMMON_PLATFORM_SRC_FILES 
++)
++
++SET(PXCOMMON_PLATFORM_INCLUDES
++	${PHYSX_SOURCE_DIR}/common/src/linux
++)
++
++
++
++IF(PX_GENERATE_STATIC_LIBRARIES)
++	SET(PXCOMMON_LIBTYPE_DEFS 
++		PX_PHYSX_STATIC_LIB;
++	)
++	SET(PHYSXCOMMON_LIBTYPE STATIC)
++ELSE()
++	SET(PXCOMMON_LIBTYPE_DEFS
++		PX_PHYSX_FOUNDATION_EXPORTS;PX_PHYSX_COMMON_EXPORTS;
++	)
++	SET(PHYSXCOMMON_LIBTYPE SHARED)
++ENDIF()
++
++
++SET(PXCOMMON_COMPILE_DEFS
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};${PXCOMMON_LIBTYPE_DEFS}
++
++	# Switch platforms here?
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS}>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS}>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS}>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS}>
++)
++
++SET(PXCOMMON_PLATFORM_LINK_FLAGS " ")
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXCooking.cmake b/physx/source/compiler/cmake/freebsd/PhysXCooking.cmake
+new file mode 100644
+index 00000000..4debf8b0
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXCooking.cmake
+@@ -0,0 +1,64 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXCooking
++#
++
++
++SET(PHYSXCOOKING_PLATFORM_SRC_FILES 
++)
++
++IF(PX_GENERATE_STATIC_LIBRARIES)
++	SET(PHYSXCOOKING_LIBTYPE STATIC)
++	SET(PXCOOKING_LIBTYPE_DEFS 
++		PX_PHYSX_STATIC_LIB;
++	)	
++ELSE()
++	SET(PHYSXCOOKING_LIBTYPE SHARED)	
++	SET(PXCOOKING_LIBTYPE_DEFS
++		PX_PHYSX_FOUNDATION_EXPORTS;PX_PHYSX_COMMON_EXPORTS;PX_PHYSX_COOKING_EXPORTS;PX_PHYSX_LOADER_EXPORTS;PX_PHYSX_CORE_EXPORTS
++	)
++ENDIF()
++
++SET(PHYSXCOOKING_COMPILE_DEFS
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_COOKING;${PXCOOKING_LIBTYPE_DEFS}
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++
++)
++
++
++SET(PHYSXCOOKING_LINK_FLAGS " ")
++SET(PHYSXCOOKING_LINK_FLAGS_DEBUG " ")
++SET(PHYSXCOOKING_LINK_FLAGS_CHECKED " ")
++SET(PHYSXCOOKING_LINK_FLAGS_PROFILE " ")
++SET(PHYSXCOOKING_LINK_FLAGS_RELEASE " ")
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXExtensions.cmake b/physx/source/compiler/cmake/freebsd/PhysXExtensions.cmake
+new file mode 100644
+index 00000000..9ab26651
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXExtensions.cmake
+@@ -0,0 +1,56 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXExtensions
++#
++
++SET(PHYSXEXTENSIONS_PLATFORM_INCLUDES
++	PRIVATE ${PHYSX_SOURCE_DIR}/Common/src/linux
++)
++
++SET(PHYSXEXTENSIONS_PLATFORM_OBJECT_FILES
++	$<TARGET_OBJECTS:FastXml>
++)
++
++SET(PHYSXEXTENSIONS_PLATFORM_SRC_FILES
++	${PHYSXEXTENSIONS_PLATFORM_OBJECT_FILES}
++)
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(PHYSXEXTENSIONS_COMPILE_DEFS
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB;
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(PHYSXEXTENSIONS_LIBTYPE STATIC)
+\ No newline at end of file
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXFoundation.cmake b/physx/source/compiler/cmake/freebsd/PhysXFoundation.cmake
+new file mode 100644
+index 00000000..ad7dc776
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXFoundation.cmake
+@@ -0,0 +1,110 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXFoundation
++#
++
++IF(PX_GENERATE_STATIC_LIBRARIES)
++	SET(PHYSXFOUNDATION_LIBTYPE STATIC)	
++ELSE()
++	SET(PHYSXFOUNDATION_LIBTYPE SHARED)
++	SET(PHYSXFOUNDATION_PLATFORM_LINKED_LIBS rt)
++	SET(PXFOUNDATION_LIBTYPE_DEFS
++		PX_PHYSX_FOUNDATION_EXPORTS;
++	)	
++ENDIF()
++
++SET(PXSHARED_PLATFORM_HEADERS
++	${PXSHARED_PATH}/include/foundation/unix/PxUnixIntrinsics.h	
++)
++SOURCE_GROUP(shared\\include\\unix FILES ${PXSHARED_PLATFORM_HEADERS})
++
++SET(PHYSXFOUNDATION_PLATFORM_SOURCE
++	${LL_SOURCE_DIR}/src/unix/PsUnixAtomic.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixCpu.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixFPU.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixMutex.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixPrintString.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixSList.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixSocket.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixSync.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixThread.cpp
++	${LL_SOURCE_DIR}/src/unix/PsUnixTime.cpp
++)
++SOURCE_GROUP("src\\src\\unix" FILES ${PHYSXFOUNDATION_PLATFORM_FILES})
++
++SET(PHYSXFOUNDATION_PLATFORM_INCLUDES
++	${LL_SOURCE_DIR}/include/linux
++)
++
++SET(PHYSXFOUNDATION_NEON_FILES
++	${LL_SOURCE_DIR}/include/unix/neon/PsUnixNeonAoS.h
++	${LL_SOURCE_DIR}/include/unix/neon/PsUnixNeonInlineAoS.h
++)
++
++SET(PHYSXFOUNDATION_SSE2_FILES
++	${LL_SOURCE_DIR}/include/unix/sse2/PsUnixSse2AoS.h
++	${LL_SOURCE_DIR}/include/unix/sse2/PsUnixSse2InlineAoS.h
++)
++
++SET(PHYSXFOUNDATION_PLATFORM_SOURCE_HEADERS
++	${LL_SOURCE_DIR}/include/unix/PsUnixAoS.h
++	${LL_SOURCE_DIR}/include/unix/PsUnixFPU.h
++	${LL_SOURCE_DIR}/include/unix/PsUnixInlineAoS.h
++	${LL_SOURCE_DIR}/include/unix/PsUnixIntrinsics.h
++	${LL_SOURCE_DIR}/include/unix/PsUnixTrigConstants.h
++)
++SOURCE_GROUP("src\\include\\unix" FILES ${PHYSXFOUNDATION_PLATFORM_SOURCE_HEADERS})
++
++INSTALL(FILES ${PHYSXFOUNDATION_PLATFORM_SOURCE_HEADERS} DESTINATION source/foundation/include/unix)
++INSTALL(FILES ${PHYSXFOUNDATION_NEON_FILES} DESTINATION source/foundation/include/unix/neon)
++INSTALL(FILES ${PHYSXFOUNDATION_SSE2_FILES} DESTINATION source/foundation/include/unix/sse2)
++INSTALL(FILES ${PXSHARED_PLATFORM_HEADERS} DESTINATION ${PXSHARED_INSTALL_PREFIX}/include/foundation/unix)
++
++SET(PHYSXFOUNDATION_PLATFORM_FILES
++	${PHYSXFOUNDATION_PLATFORM_SOURCE}
++	${PHYSXFOUNDATION_PLATFORM_SOURCE_HEADERS}
++	${PHYSXFOUNDATION_NEON_FILES}
++	${PHYSXFOUNDATION_SSE2_FILES}
++	${PHYSXFOUNDATION_RESOURCE_FILE}
++)
++
++
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(PHYSXFOUNDATION_COMPILE_DEFS
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};${PXFOUNDATION_LIBTYPE_DEFS}
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(PXFOUNDATION_PLATFORM_LINK_FLAGS "-m64")
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXPvdSDK.cmake b/physx/source/compiler/cmake/freebsd/PhysXPvdSDK.cmake
+new file mode 100644
+index 00000000..d59d1199
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXPvdSDK.cmake
+@@ -0,0 +1,44 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXPvdSDK
++#
++
++SET(PHYSXPVDSDK_LIBTYPE STATIC)
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(PHYSXPVDSDK_COMPILE_DEFS 
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB;
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXTask.cmake b/physx/source/compiler/cmake/freebsd/PhysXTask.cmake
+new file mode 100644
+index 00000000..3feca7bf
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXTask.cmake
+@@ -0,0 +1,45 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXTask
++#
++
++SET(PHYSXTASK_COMPILE_DEFS 
++	${PHYSX_LINUX_COMPILE_DEFS};
++)
++
++SET(PHYSXTASK_COMPILE_DEFS 
++	${PHYSX_LINUX_COMPILE_DEFS};_LIB
++	
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(PHYSXTASK_LIBTYPE OBJECT)
+diff --git a/physx/source/compiler/cmake/freebsd/PhysXVehicle.cmake b/physx/source/compiler/cmake/freebsd/PhysXVehicle.cmake
+new file mode 100644
+index 00000000..9b0745f9
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/PhysXVehicle.cmake
+@@ -0,0 +1,47 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build PhysXVehicle
++#
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(PHYSXVEHICLE_COMPILE_DEFS
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++
++SET(PHYSXVEHICLE_LIBTYPE STATIC)
++
++
+diff --git a/physx/source/compiler/cmake/freebsd/SceneQuery.cmake b/physx/source/compiler/cmake/freebsd/SceneQuery.cmake
+new file mode 100644
+index 00000000..50a6cec6
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/SceneQuery.cmake
+@@ -0,0 +1,50 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build SceneQuery
++#
++
++SET(SCENEQUERY_PLATFORM_INCLUDES
++	PRIVATE ${PHYSX_SOURCE_DIR}/Common/src/linux
++)
++
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(SCENEQUERY_COMPILE_DEFS
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(SCENEQUERY_LIBTYPE OBJECT)
++
+diff --git a/physx/source/compiler/cmake/freebsd/SimulationController.cmake b/physx/source/compiler/cmake/freebsd/SimulationController.cmake
+new file mode 100644
+index 00000000..1dc5bd37
+--- /dev/null
++++ b/physx/source/compiler/cmake/freebsd/SimulationController.cmake
+@@ -0,0 +1,51 @@
++##
++## Redistribution and use in source and binary forms, with or without
++## modification, are permitted provided that the following conditions
++## are met:
++##  * Redistributions of source code must retain the above copyright
++##    notice, this list of conditions and the following disclaimer.
++##  * Redistributions in binary form must reproduce the above copyright
++##    notice, this list of conditions and the following disclaimer in the
++##    documentation and/or other materials provided with the distribution.
++##  * Neither the name of NVIDIA CORPORATION nor the names of its
++##    contributors may be used to endorse or promote products derived
++##    from this software without specific prior written permission.
++##
++## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
++## EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++## IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++## CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++## EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++## PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++## PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++## OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++##
++## Copyright (c) 2018-2019 NVIDIA Corporation. All rights reserved.
++
++#
++# Build SimulationController
++#
++
++SET(SIMULATIONCONTROLLER_PLATFORM_INCLUDES
++	${PHYSX_SOURCE_DIR}/common/src/linux
++	${PHYSX_SOURCE_DIR}/lowlevel/linux/include
++)
++
++# Use generator expressions to set config specific preprocessor definitions
++SET(SIMULATIONCONTROLLER_COMPILE_DEFS
++
++	# Common to all configurations
++	${PHYSX_LINUX_COMPILE_DEFS};PX_PHYSX_STATIC_LIB
++
++	$<$<CONFIG:debug>:${PHYSX_LINUX_DEBUG_COMPILE_DEFS};>
++	$<$<CONFIG:checked>:${PHYSX_LINUX_CHECKED_COMPILE_DEFS};>
++	$<$<CONFIG:profile>:${PHYSX_LINUX_PROFILE_COMPILE_DEFS};>
++	$<$<CONFIG:release>:${PHYSX_LINUX_RELEASE_COMPILE_DEFS};>
++)
++
++SET(SIMULATIONCONTROLLER_LIBTYPE OBJECT)
++
++
+diff --git a/physx/source/foundation/include/PsAllocator.h b/physx/source/foundation/include/PsAllocator.h
+index a1480b23..0bdf3bac 100644
+--- a/physx/source/foundation/include/PsAllocator.h
++++ b/physx/source/foundation/include/PsAllocator.h
+@@ -100,7 +100,7 @@
+ #if PX_WINDOWS_FAMILY
+ 	#include <malloc.h>
+ 	#define PxAlloca(x) _alloca(x)
+-#elif PX_LINUX || PX_ANDROID
++#elif PX_LINUX || PX_ANDROID || PX_FREEBSD
+ 	#include <malloc.h>
+ 	#define PxAlloca(x) alloca(x)
+ #elif PX_APPLE_FAMILY
+diff --git a/physx/source/foundation/include/PsFPU.h b/physx/source/foundation/include/PsFPU.h
+index de4b49d0..2ecf130c 100644
+--- a/physx/source/foundation/include/PsFPU.h
++++ b/physx/source/foundation/include/PsFPU.h
+@@ -79,7 +79,7 @@ PX_FOUNDATION_API void disableFPExceptions();
+ 
+ #if PX_WINDOWS_FAMILY || PX_XBOXONE || PX_XBOX_SERIES_X
+ #include "windows/PsWindowsFPU.h"
+-#elif (PX_LINUX && PX_SSE2) || PX_PS4 || PX_OSX
++#elif ((PX_LINUX || PX_FREEBSD) && PX_SSE2) || PX_PS4 || PX_OSX
+ #include "unix/PsUnixFPU.h"
+ #else
+ PX_INLINE physx::shdfnd::SIMDGuard::SIMDGuard()
+diff --git a/physx/source/foundation/include/PsHash.h b/physx/source/foundation/include/PsHash.h
+index a0fe56b6..f6563a57 100644
+--- a/physx/source/foundation/include/PsHash.h
++++ b/physx/source/foundation/include/PsHash.h
+@@ -38,7 +38,7 @@
+ #pragma warning(disable : 4302)
+ #endif
+ 
+-#if PX_LINUX
++#if PX_LINUX || PX_FREEBSD
+ #include "foundation/PxSimpleTypes.h"
+ #endif
+ 
+diff --git a/physx/source/foundation/include/PsIntrinsics.h b/physx/source/foundation/include/PsIntrinsics.h
+index f08af7f4..69bfa4fd 100644
+--- a/physx/source/foundation/include/PsIntrinsics.h
++++ b/physx/source/foundation/include/PsIntrinsics.h
+@@ -34,7 +34,7 @@
+ 
+ #if PX_WINDOWS_FAMILY
+ #include "windows/PsWindowsIntrinsics.h"
+-#elif(PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4)
++#elif(PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4 || PX_FREEBSD)
+ #include "unix/PsUnixIntrinsics.h"
+ #elif PX_XBOXONE
+ #include "XboxOne/PsXboxOneIntrinsics.h"
+diff --git a/physx/source/foundation/include/PsThread.h b/physx/source/foundation/include/PsThread.h
+index d0ec8d96..cf7c011d 100644
+--- a/physx/source/foundation/include/PsThread.h
++++ b/physx/source/foundation/include/PsThread.h
+@@ -41,7 +41,7 @@
+ 
+ #if PX_WINDOWS_FAMILY || PX_XBOXONE || PX_XBOX_SERIES_X
+ #define PxSpinLockPause() __asm pause
+-#elif PX_LINUX || PX_ANDROID || PX_PS4 || PX_APPLE_FAMILY || PX_SWITCH
++#elif PX_LINUX || PX_ANDROID || PX_PS4 || PX_APPLE_FAMILY || PX_SWITCH || PX_FREEBSD
+ #define PxSpinLockPause() asm("nop")
+ #else
+ #error "Platform not supported!"
+diff --git a/physx/source/foundation/include/PsTime.h b/physx/source/foundation/include/PsTime.h
+index 4d5eedbf..5cb0e46b 100644
+--- a/physx/source/foundation/include/PsTime.h
++++ b/physx/source/foundation/include/PsTime.h
+@@ -33,7 +33,7 @@
+ #include "Ps.h"
+ #include "foundation/PxFoundationConfig.h"
+ 
+-#if PX_LINUX || PX_ANDROID
++#if PX_LINUX || PX_ANDROID || PX_FREEBSD
+ #include <time.h>
+ #endif
+ 
+@@ -84,7 +84,7 @@ class PX_FOUNDATION_API Time
+ 	Second getLastTime() const;
+ 
+   private:
+-#if PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4
++#if PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4 || PX_FREEBSD
+ 	Second mLastTime;
+ #else
+ 	int64_t mTickCount;
+diff --git a/physx/source/foundation/include/PsUtilities.h b/physx/source/foundation/include/PsUtilities.h
+index 4431d64d..e859a9f6 100644
+--- a/physx/source/foundation/include/PsUtilities.h
++++ b/physx/source/foundation/include/PsUtilities.h
+@@ -122,7 +122,7 @@ PX_CUDA_CALLABLE PX_FORCE_INLINE void order(T& x, T& y, E1& xe1, E1& ye1)
+ 	}
+ }
+ 
+-#if PX_GCC_FAMILY && !PX_EMSCRIPTEN  && !PX_LINUX
++#if PX_GCC_FAMILY && !PX_EMSCRIPTEN  && !PX_LINUX && !PX_FREEBSD
+ __attribute__((noreturn))
+ #endif
+     PX_INLINE void debugBreak()
+@@ -131,7 +131,7 @@ __attribute__((noreturn))
+ 	__debugbreak();
+ #elif PX_ANDROID
+ 	raise(SIGTRAP); // works better than __builtin_trap. Proper call stack and can be continued.
+-#elif PX_LINUX
++#elif PX_LINUX || PX_FREEBSD
+ 	asm("int $3");
+ #elif PX_GCC_FAMILY
+ 	__builtin_trap();
+diff --git a/physx/source/foundation/include/unix/PsUnixFPU.h b/physx/source/foundation/include/unix/PsUnixFPU.h
+index f4fd9715..7c451c7f 100644
+--- a/physx/source/foundation/include/unix/PsUnixFPU.h
++++ b/physx/source/foundation/include/unix/PsUnixFPU.h
+@@ -32,7 +32,7 @@
+ 
+ #include "foundation/PxPreprocessor.h"
+ 
+-#if PX_LINUX || PX_PS4 || PX_OSX
++#if PX_LINUX || PX_PS4 || PX_OSX || PX_FREEBSD
+ 
+ #if PX_X86 || PX_X64
+ #if PX_EMSCRIPTEN
+diff --git a/physx/source/foundation/include/unix/PsUnixIntrinsics.h b/physx/source/foundation/include/unix/PsUnixIntrinsics.h
+index e6165e86..21d95f74 100644
+--- a/physx/source/foundation/include/unix/PsUnixIntrinsics.h
++++ b/physx/source/foundation/include/unix/PsUnixIntrinsics.h
+@@ -45,7 +45,7 @@
+ // this file is for internal intrinsics - that is, intrinsics that are used in
+ // cross platform code but do not appear in the API
+ 
+-#if !(PX_LINUX || PX_ANDROID || PX_PS4 || PX_APPLE_FAMILY)
++#if !(PX_LINUX || PX_ANDROID || PX_PS4 || PX_APPLE_FAMILY || PX_FREEBSD)
+ #error "This file should only be included by unix builds!!"
+ #endif
+ 
+diff --git a/physx/source/foundation/src/unix/PsUnixFPU.cpp b/physx/source/foundation/src/unix/PsUnixFPU.cpp
+index eb2cd050..2911f86b 100644
+--- a/physx/source/foundation/src/unix/PsUnixFPU.cpp
++++ b/physx/source/foundation/src/unix/PsUnixFPU.cpp
+@@ -89,7 +89,7 @@ physx::shdfnd::FPUGuard::~FPUGuard()
+ 
+ PX_FOUNDATION_API void physx::shdfnd::enableFPExceptions()
+ {
+-#if PX_LINUX && !defined(__EMSCRIPTEN__)
++#if (PX_LINUX || PX_FREEBSD) && !defined(__EMSCRIPTEN__)
+ 	feclearexcept(FE_ALL_EXCEPT);
+ 	feenableexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
+ #elif PX_OSX
+@@ -106,7 +106,7 @@ PX_FOUNDATION_API void physx::shdfnd::enableFPExceptions()
+ 
+ PX_FOUNDATION_API void physx::shdfnd::disableFPExceptions()
+ {
+-#if PX_LINUX && !defined(__EMSCRIPTEN__)
++#if (PX_LINUX || PX_FREEBSD) && !defined(__EMSCRIPTEN__)
+ 	fedisableexcept(FE_ALL_EXCEPT);
+ #elif PX_OSX
+ 	// clear any pending exceptions
+diff --git a/physx/source/foundation/src/unix/PsUnixSocket.cpp b/physx/source/foundation/src/unix/PsUnixSocket.cpp
+index 5833b3a2..4baa34f0 100644
+--- a/physx/source/foundation/src/unix/PsUnixSocket.cpp
++++ b/physx/source/foundation/src/unix/PsUnixSocket.cpp
+@@ -33,6 +33,9 @@
+ 
+ #include <sys/types.h>
+ #include <sys/socket.h>
++#if defined(PX_FREEBSD)
++#include <netinet/in.h>
++#endif
+ #include <sys/select.h>
+ #include <sys/time.h>
+ #if !PX_PS4
+diff --git a/physx/source/foundation/src/unix/PsUnixThread.cpp b/physx/source/foundation/src/unix/PsUnixThread.cpp
+index c29b09cb..e8c4c036 100644
+--- a/physx/source/foundation/src/unix/PsUnixThread.cpp
++++ b/physx/source/foundation/src/unix/PsUnixThread.cpp
+@@ -36,15 +36,23 @@
+ #include "PsThread.h"
+ 
+ #include <math.h>
+-#if !PX_APPLE_FAMILY && !defined(ANDROID) && !defined(__CYGWIN__) && !PX_PS4 && !PX_EMSCRIPTEN
++#if !PX_APPLE_FAMILY && !defined(ANDROID) && !defined(__CYGWIN__) && !PX_PS4 && !PX_EMSCRIPTEN && !PX_FREEBSD
+ #include <bits/local_lim.h> // PTHREAD_STACK_MIN
+ #endif
++#if defined(PX_FREEBSD)
++#include <pthread.h>
++#include <unistd.h>
++#include <sys/types.h>
++#include <sys/sysctl.h>
++#include <pthread_np.h>
++#include <sched.h>
++#endif
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <unistd.h>
+ #if !PX_PS4
+ #include <sys/syscall.h>
+-#if !PX_APPLE_FAMILY && !PX_EMSCRIPTEN
++#if !PX_APPLE_FAMILY && !PX_EMSCRIPTEN && !PX_FREEBSD
+ #include <asm/unistd.h>
+ #include <sys/resource.h>
+ #endif
+@@ -117,6 +125,8 @@ static void setTid(_ThreadImpl& threadImpl)
+ 	threadImpl.tid = syscall(SYS_gettid);
+ #elif PX_EMSCRIPTEN
+ 	threadImpl.tid = pthread_self();
++#elif PX_FREEBSD
++	threadImpl.tid = pthread_getthreadid_np();
+ #else
+ 	threadImpl.tid = syscall(__NR_gettid);
+ #endif
+@@ -313,7 +323,7 @@ uint32_t ThreadImpl::setAffinityMask(uint32_t mask)
+ 		prevMask = setAffinityMaskPS4(getThread(this)->thread, mask);
+ #elif PX_EMSCRIPTEN
+ 		// not supported
+-#elif !PX_APPLE_FAMILY // Apple doesn't support syscall with getaffinity and setaffinity
++#elif !PX_APPLE_FAMILY && !PX_FREEBSD // Apple doesn't support syscall with getaffinity and setaffinity
+ 		int32_t errGet = syscall(__NR_sched_getaffinity, getThread(this)->tid, sizeof(prevMask), &prevMask);
+ 		if(errGet < 0)
+ 			return 0;
+@@ -321,6 +331,14 @@ uint32_t ThreadImpl::setAffinityMask(uint32_t mask)
+ 		int32_t errSet = syscall(__NR_sched_setaffinity, getThread(this)->tid, sizeof(mask), &mask);
+ 		if(errSet != 0)
+ 			return 0;
++#elif PX_FREEBSD
++		int32_t errGet = syscall(SYS_cpuset_getaffinity, getThread(this)->tid, sizeof(prevMask), &prevMask);
++		if(errGet < 0)
++			return 0;
++
++		int32_t errSet = syscall(SYS_cpuset_setaffinity, getThread(this)->tid, sizeof(mask), &mask);
++		if (errSet != 0)
++			return 0;
+ #endif
+ 	}
+ 
+diff --git a/physx/source/geomutils/include/GuSIMDHelpers.h b/physx/source/geomutils/include/GuSIMDHelpers.h
+index caa8e5a6..ee3af743 100644
+--- a/physx/source/geomutils/include/GuSIMDHelpers.h
++++ b/physx/source/geomutils/include/GuSIMDHelpers.h
+@@ -72,7 +72,7 @@ namespace Gu
+ 			const QuatV qV = V4LoadU(&q.x);
+ 			Vec3V column0V, column1V, column2V;
+ 			QuatGetMat33V(qV, column0V, column1V, column2V);
+-#if defined(PX_SIMD_DISABLED) || PX_ANDROID || (PX_LINUX && (PX_ARM || PX_A64)) || (PX_UWP && (PX_ARM || PX_A64))
++#if defined(PX_SIMD_DISABLED) || PX_ANDROID || ((PX_LINUX || PX_FREEBSD) && (PX_ARM || PX_A64)) || (PX_UWP && (PX_ARM || PX_A64))
+ 			V3StoreU(column0V, column0);
+ 			V3StoreU(column1V, column1);
+ 			V3StoreU(column2V, column2);
+diff --git a/physx/source/lowleveldynamics/include/DyFeatherstoneArticulationUtils.h b/physx/source/lowleveldynamics/include/DyFeatherstoneArticulationUtils.h
+index 1619d8fb..7ffed3dd 100644
+--- a/physx/source/lowleveldynamics/include/DyFeatherstoneArticulationUtils.h
++++ b/physx/source/lowleveldynamics/include/DyFeatherstoneArticulationUtils.h
+@@ -212,7 +212,7 @@ namespace Dy
+ 			return Cm::UnAlignedSpatialVector(top1, bottom1);
+ 		}
+ 
+-		PX_CUDA_CALLABLE PX_FORCE_INLINE void operator =(SpatialTransform& other)
++		PX_CUDA_CALLABLE PX_FORCE_INLINE void operator =(const SpatialTransform& other)
+ 		{
+ 			R = other.R;
+ 			q = other.q;
+diff --git a/physx/source/physx/src/gpu/PxPhysXGpuModuleLoader.cpp b/physx/source/physx/src/gpu/PxPhysXGpuModuleLoader.cpp
+index 94105ef0..a81bf2e9 100644
+--- a/physx/source/physx/src/gpu/PxPhysXGpuModuleLoader.cpp
++++ b/physx/source/physx/src/gpu/PxPhysXGpuModuleLoader.cpp
+@@ -40,7 +40,7 @@
+ #include "common/windows/PxWindowsDelayLoadHook.h"
+ #include "windows/PsWindowsInclude.h"
+ #include "windows/CmWindowsModuleUpdateLoader.h"
+-#elif PX_LINUX
++#elif PX_LINUX || PX_FREEBSD
+ #include <dlfcn.h>
+ #endif // ~PX_LINUX
+ 
+@@ -131,7 +131,7 @@ namespace physx
+ 		}
+ 	}
+ 
+-#elif PX_LINUX
++#elif PX_LINUX || PX_FREEBSD
+ 
+ 	void PxLoadPhysxGPUModule(const char*)
+ 	{
+diff --git a/physx/source/physxextensions/src/serialization/SnSerialUtils.cpp b/physx/source/physxextensions/src/serialization/SnSerialUtils.cpp
+index 282b9810..bb24a7ef 100644
+--- a/physx/source/physxextensions/src/serialization/SnSerialUtils.cpp
++++ b/physx/source/physxextensions/src/serialization/SnSerialUtils.cpp
+@@ -39,7 +39,7 @@ using namespace physx;
+ namespace
+ {
+ 
+-#define SN_NUM_BINARY_PLATFORMS 16
++#define SN_NUM_BINARY_PLATFORMS 17
+ const PxU32 sBinaryPlatformTags[SN_NUM_BINARY_PLATFORMS] =
+ {
+ 	PX_MAKE_FOURCC('W','_','3','2'),
+@@ -78,6 +78,7 @@ const char* sBinaryPlatformNames[SN_NUM_BINARY_PLATFORMS] =
+ 	"linuxaarch64",
+ 	"uwparm",
+ 	"uwparm64",
++  "freebsd"
+ };
+ 
+ }
+@@ -118,6 +119,8 @@ PxU32 getBinaryPlatformTag()
+ 	return sBinaryPlatformTags[14];
+ #elif PX_UWP && PX_A64
+ 	return sBinaryPlatformTags[15];
++#elif PX_FREEBSD
++	return sBinaryPlatformTags[16];
+ #else
+ 	#error Unknown binary platform
+ #endif
+diff --git a/physx/source/physxmetadata/core/include/PxAutoGeneratedMetaDataObjects.h b/physx/source/physxmetadata/core/include/PxAutoGeneratedMetaDataObjects.h
+index ef08baa8..94c0cc67 100644
+--- a/physx/source/physxmetadata/core/include/PxAutoGeneratedMetaDataObjects.h
++++ b/physx/source/physxmetadata/core/include/PxAutoGeneratedMetaDataObjects.h
+@@ -69,7 +69,7 @@ template<> struct PxEnumTraits< physx::PxShapeFlag::Enum > { PxEnumTraits() : Na
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxPhysics*>(NULL) );
++			return inOperator( static_cast<PxPhysics*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -167,7 +167,7 @@ template<> struct PxEnumTraits< physx::PxCombineMode::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxMaterial*>(NULL) );
++			return inOperator( static_cast<PxMaterial*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -258,7 +258,7 @@ template<> struct PxEnumTraits< physx::PxActorFlag::Enum > { PxEnumTraits() : Na
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxActor*>(NULL) );
++			return inOperator( static_cast<PxActor*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -314,7 +314,7 @@ template<> struct PxEnumTraits< physx::PxActorFlag::Enum > { PxEnumTraits() : Na
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxRigidActor*>(NULL) );
++			return inOperator( static_cast<PxRigidActor*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -435,7 +435,7 @@ template<> struct PxEnumTraits< physx::PxRigidBodyFlag::Enum > { PxEnumTraits()
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxRigidBody*>(NULL) );
++			return inOperator( static_cast<PxRigidBody*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -533,7 +533,7 @@ template<> struct PxEnumTraits< physx::PxRigidDynamicLockFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxRigidDynamic*>(NULL) );
++			return inOperator( static_cast<PxRigidDynamic*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -592,7 +592,7 @@ template<> struct PxEnumTraits< physx::PxRigidDynamicLockFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxRigidStatic*>(NULL) );
++			return inOperator( static_cast<PxRigidStatic*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -654,7 +654,7 @@ template<> struct PxEnumTraits< physx::PxRigidDynamicLockFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulationLink*>(NULL) );
++			return inOperator( static_cast<PxArticulationLink*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -713,7 +713,7 @@ template<> struct PxEnumTraits< physx::PxRigidDynamicLockFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulationJointBase*>(NULL) );
++			return inOperator( static_cast<PxArticulationJointBase*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -814,7 +814,7 @@ template<> struct PxEnumTraits< physx::PxArticulationJointDriveType::Enum > { Px
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulationJoint*>(NULL) );
++			return inOperator( static_cast<PxArticulationJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -932,7 +932,7 @@ template<> struct PxEnumTraits< physx::PxArticulationDriveType::Enum > { PxEnumT
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulationJointReducedCoordinate*>(NULL) );
++			return inOperator( static_cast<PxArticulationJointReducedCoordinate*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1013,7 +1013,7 @@ template<> struct PxEnumTraits< physx::PxArticulationDriveType::Enum > { PxEnumT
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulationBase*>(NULL) );
++			return inOperator( static_cast<PxArticulationBase*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1079,7 +1079,7 @@ template<> struct PxEnumTraits< physx::PxArticulationDriveType::Enum > { PxEnumT
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulation*>(NULL) );
++			return inOperator( static_cast<PxArticulation*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1163,7 +1163,7 @@ template<> struct PxEnumTraits< physx::PxArticulationCache::Enum > { PxEnumTrait
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxArticulationReducedCoordinate*>(NULL) );
++			return inOperator( static_cast<PxArticulationReducedCoordinate*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1225,7 +1225,7 @@ template<> struct PxEnumTraits< physx::PxArticulationCache::Enum > { PxEnumTrait
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxAggregate*>(NULL) );
++			return inOperator( static_cast<PxAggregate*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1310,7 +1310,7 @@ template<> struct PxEnumTraits< physx::PxConstraintFlag::Enum > { PxEnumTraits()
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxConstraint*>(NULL) );
++			return inOperator( static_cast<PxConstraint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1419,7 +1419,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxShape*>(NULL) );
++			return inOperator( static_cast<PxShape*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1483,7 +1483,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxPruningStructure*>(NULL) );
++			return inOperator( static_cast<PxPruningStructure*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1538,7 +1538,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxTolerancesScale*>(NULL) );
++			return inOperator( static_cast<PxTolerancesScale*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1585,7 +1585,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxGeometry*>(NULL) );
++			return inOperator( static_cast<PxGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1632,7 +1632,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxBoxGeometry*>(NULL) );
++			return inOperator( static_cast<PxBoxGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1687,7 +1687,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxCapsuleGeometry*>(NULL) );
++			return inOperator( static_cast<PxCapsuleGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1743,7 +1743,7 @@ template<> struct PxEnumTraits< physx::PxGeometryType::Enum > { PxEnumTraits() :
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxMeshScale*>(NULL) );
++			return inOperator( static_cast<PxMeshScale*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1804,7 +1804,7 @@ template<> struct PxEnumTraits< physx::PxConvexMeshGeometryFlag::Enum > { PxEnum
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxConvexMeshGeometry*>(NULL) );
++			return inOperator( static_cast<PxConvexMeshGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1858,7 +1858,7 @@ template<> struct PxEnumTraits< physx::PxConvexMeshGeometryFlag::Enum > { PxEnum
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxSphereGeometry*>(NULL) );
++			return inOperator( static_cast<PxSphereGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1907,7 +1907,7 @@ template<> struct PxEnumTraits< physx::PxConvexMeshGeometryFlag::Enum > { PxEnum
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxPlaneGeometry*>(NULL) );
++			return inOperator( static_cast<PxPlaneGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1970,7 +1970,7 @@ template<> struct PxEnumTraits< physx::PxMeshGeometryFlag::Enum > { PxEnumTraits
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxTriangleMeshGeometry*>(NULL) );
++			return inOperator( static_cast<PxTriangleMeshGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2036,7 +2036,7 @@ template<> struct PxEnumTraits< physx::PxMeshGeometryFlag::Enum > { PxEnumTraits
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxHeightFieldGeometry*>(NULL) );
++			return inOperator( static_cast<PxHeightFieldGeometry*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2119,7 +2119,7 @@ template<> struct PxEnumTraits< physx::PxHeightFieldFlag::Enum > { PxEnumTraits(
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxHeightFieldDesc*>(NULL) );
++			return inOperator( static_cast<PxHeightFieldDesc*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2395,7 +2395,7 @@ template<> struct PxEnumTraits< physx::PxBroadPhaseType::Enum > { PxEnumTraits()
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxScene*>(NULL) );
++			return inOperator( static_cast<PxScene*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2503,7 +2503,7 @@ template<> struct PxEnumTraits< physx::PxBroadPhaseType::Enum > { PxEnumTraits()
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxSceneLimits*>(NULL) );
++			return inOperator( static_cast<PxSceneLimits*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2579,7 +2579,7 @@ template<> struct PxEnumTraits< physx::PxBroadPhaseType::Enum > { PxEnumTraits()
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxgDynamicsMemoryConfig*>(NULL) );
++			return inOperator( static_cast<PxgDynamicsMemoryConfig*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2759,7 +2759,7 @@ template<> struct PxEnumTraits< physx::PxSolverType::Enum > { PxEnumTraits() : N
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxSceneDesc*>(NULL) );
++			return inOperator( static_cast<PxSceneDesc*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -2934,7 +2934,7 @@ template<> struct PxEnumTraits< physx::PxSimulationStatistics::RbPairStatsType >
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxSimulationStatistics*>(NULL) );
++			return inOperator( static_cast<PxSimulationStatistics*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+diff --git a/physx/source/physxmetadata/extensions/include/PxExtensionAutoGeneratedMetaDataObjects.h b/physx/source/physxmetadata/extensions/include/PxExtensionAutoGeneratedMetaDataObjects.h
+index 63f64a96..8d4cea92 100644
+--- a/physx/source/physxmetadata/extensions/include/PxExtensionAutoGeneratedMetaDataObjects.h
++++ b/physx/source/physxmetadata/extensions/include/PxExtensionAutoGeneratedMetaDataObjects.h
+@@ -102,7 +102,7 @@ template<> struct PxEnumTraits< physx::PxJointActorIndex::Enum > { PxEnumTraits(
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJoint*>(NULL) );
++			return inOperator( static_cast<PxJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -236,7 +236,7 @@ template<> struct PxEnumTraits< physx::PxD6Drive::Enum > { PxEnumTraits() : Name
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxD6Joint*>(NULL) );
++			return inOperator( static_cast<PxD6Joint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -331,7 +331,7 @@ template<> struct PxEnumTraits< physx::PxDistanceJointFlag::Enum > { PxEnumTrait
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxDistanceJoint*>(NULL) );
++			return inOperator( static_cast<PxDistanceJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -405,7 +405,7 @@ template<> struct PxEnumTraits< physx::PxDistanceJointFlag::Enum > { PxEnumTrait
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxContactJoint*>(NULL) );
++			return inOperator( static_cast<PxContactJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -468,7 +468,7 @@ template<> struct PxEnumTraits< physx::PxDistanceJointFlag::Enum > { PxEnumTrait
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxFixedJoint*>(NULL) );
++			return inOperator( static_cast<PxFixedJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -546,7 +546,7 @@ template<> struct PxEnumTraits< physx::PxPrismaticJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxPrismaticJoint*>(NULL) );
++			return inOperator( static_cast<PxPrismaticJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -639,7 +639,7 @@ template<> struct PxEnumTraits< physx::PxRevoluteJointFlag::Enum > { PxEnumTrait
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxRevoluteJoint*>(NULL) );
++			return inOperator( static_cast<PxRevoluteJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -721,7 +721,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxSphericalJoint*>(NULL) );
++			return inOperator( static_cast<PxSphericalJoint*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -790,7 +790,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJointLimitParameters*>(NULL) );
++			return inOperator( static_cast<PxJointLimitParameters*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -842,7 +842,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJointLinearLimit*>(NULL) );
++			return inOperator( static_cast<PxJointLinearLimit*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -897,7 +897,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJointLinearLimitPair*>(NULL) );
++			return inOperator( static_cast<PxJointLinearLimitPair*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -953,7 +953,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJointAngularLimitPair*>(NULL) );
++			return inOperator( static_cast<PxJointAngularLimitPair*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1009,7 +1009,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJointLimitCone*>(NULL) );
++			return inOperator( static_cast<PxJointLimitCone*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1071,7 +1071,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxJointLimitPyramid*>(NULL) );
++			return inOperator( static_cast<PxJointLimitPyramid*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1129,7 +1129,7 @@ template<> struct PxEnumTraits< physx::PxSphericalJointFlag::Enum > { PxEnumTrai
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxSpring*>(NULL) );
++			return inOperator( static_cast<PxSpring*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1187,7 +1187,7 @@ template<> struct PxEnumTraits< physx::PxD6JointDriveFlag::Enum > { PxEnumTraits
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxD6JointDrive*>(NULL) );
++			return inOperator( static_cast<PxD6JointDrive*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+diff --git a/physx/source/physxvehicle/src/physxmetadata/include/PxVehicleAutoGeneratedMetaDataObjects.h b/physx/source/physxvehicle/src/physxmetadata/include/PxVehicleAutoGeneratedMetaDataObjects.h
+index a8bf2c1d..8ef7b4c0 100644
+--- a/physx/source/physxvehicle/src/physxmetadata/include/PxVehicleAutoGeneratedMetaDataObjects.h
++++ b/physx/source/physxvehicle/src/physxmetadata/include/PxVehicleAutoGeneratedMetaDataObjects.h
+@@ -59,7 +59,7 @@
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleChassisData*>(NULL) );
++			return inOperator( static_cast<PxVehicleChassisData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -137,7 +137,7 @@ template<> struct PxEnumTraits< const physx::PxEMPTY > { PxEnumTraits() : NameCo
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleEngineData*>(NULL) );
++			return inOperator( static_cast<PxVehicleEngineData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -239,7 +239,7 @@ template<> struct PxEnumTraits< physx::PxVehicleGearsData::Enum > { PxEnumTraits
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleGearsData*>(NULL) );
++			return inOperator( static_cast<PxVehicleGearsData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -296,7 +296,7 @@ template<> struct PxEnumTraits< physx::PxVehicleGearsData::Enum > { PxEnumTraits
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleAutoBoxData*>(NULL) );
++			return inOperator( static_cast<PxVehicleAutoBoxData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -376,7 +376,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDifferential4WData::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDifferential4WData*>(NULL) );
++			return inOperator( static_cast<PxVehicleDifferential4WData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -430,7 +430,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDifferential4WData::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDifferentialNWData*>(NULL) );
++			return inOperator( static_cast<PxVehicleDifferentialNWData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -487,7 +487,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDifferential4WData::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleAckermannGeometryData*>(NULL) );
++			return inOperator( static_cast<PxVehicleAckermannGeometryData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -551,7 +551,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleClutchData*>(NULL) );
++			return inOperator( static_cast<PxVehicleClutchData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -613,7 +613,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleTireLoadFilterData*>(NULL) );
++			return inOperator( static_cast<PxVehicleTireLoadFilterData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -695,7 +695,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleWheelData*>(NULL) );
++			return inOperator( static_cast<PxVehicleWheelData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -781,7 +781,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleSuspensionData*>(NULL) );
++			return inOperator( static_cast<PxVehicleSuspensionData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -845,7 +845,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleAntiRollBarData*>(NULL) );
++			return inOperator( static_cast<PxVehicleAntiRollBarData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -919,7 +919,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleTireData*>(NULL) );
++			return inOperator( static_cast<PxVehicleTireData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -978,7 +978,7 @@ template<> struct PxEnumTraits< physx::PxVehicleClutchAccuracyMode::Enum > { PxE
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleWheels4SimData*>(NULL) );
++			return inOperator( static_cast<PxVehicleWheels4SimData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1062,7 +1062,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleWheelsSimData*>(NULL) );
++			return inOperator( static_cast<PxVehicleWheelsSimData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1131,7 +1131,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleWheelsDynData*>(NULL) );
++			return inOperator( static_cast<PxVehicleWheelsDynData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1195,7 +1195,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleWheels*>(NULL) );
++			return inOperator( static_cast<PxVehicleWheels*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1296,7 +1296,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDriveDynData*>(NULL) );
++			return inOperator( static_cast<PxVehicleDriveDynData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1370,7 +1370,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDriveSimData*>(NULL) );
++			return inOperator( static_cast<PxVehicleDriveSimData*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1424,7 +1424,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDriveSimData4W*>(NULL) );
++			return inOperator( static_cast<PxVehicleDriveSimData4W*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1480,7 +1480,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDrive*>(NULL) );
++			return inOperator( static_cast<PxVehicleDrive*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1536,7 +1536,7 @@ template<> struct PxEnumTraits< physx::PxVehicleWheelsSimFlag::Enum > { PxEnumTr
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDrive4W*>(NULL) );
++			return inOperator( static_cast<PxVehicleDrive4W*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1602,7 +1602,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDriveTankControlModel::Enum > {
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDriveTank*>(NULL) );
++			return inOperator( static_cast<PxVehicleDriveTank*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1656,7 +1656,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDriveTankControlModel::Enum > {
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDriveSimDataNW*>(NULL) );
++			return inOperator( static_cast<PxVehicleDriveSimDataNW*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1711,7 +1711,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDriveTankControlModel::Enum > {
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleDriveNW*>(NULL) );
++			return inOperator( static_cast<PxVehicleDriveNW*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+@@ -1767,7 +1767,7 @@ template<> struct PxEnumTraits< physx::PxVehicleDriveTankControlModel::Enum > {
+ 		template<typename TReturnType, typename TOperator>
+ 		TReturnType visitType( TOperator inOperator ) const
+ 		{
+-			return inOperator( reinterpret_cast<PxVehicleNoDrive*>(NULL) );
++			return inOperator( static_cast<PxVehicleNoDrive*>(NULL) );
+ 		}
+ 		template<typename TOperator>
+ 		void visitBases( TOperator inOperator )
+diff --git a/physx/source/pvd/include/PxProfileAllocatorWrapper.h b/physx/source/pvd/include/PxProfileAllocatorWrapper.h
+index 46034b00..209a9340 100644
+--- a/physx/source/pvd/include/PxProfileAllocatorWrapper.h
++++ b/physx/source/pvd/include/PxProfileAllocatorWrapper.h
+@@ -74,7 +74,7 @@ namespace physx { namespace profile {
+ 	{
+ 		static const char* getName()
+ 		{
+-#if PX_LINUX || PX_ANDROID || PX_PS4 || PX_IOS || PX_OSX || PX_EMSCRIPTEN || PX_SWITCH
++#if PX_LINUX || PX_ANDROID || PX_PS4 || PX_IOS || PX_OSX || PX_EMSCRIPTEN || PX_SWITCH || PX_FREEBSD
+ 			return __PRETTY_FUNCTION__;
+ #else
+ 			return typeid(T).name();
+diff --git a/pxshared/include/foundation/PxIntrinsics.h b/pxshared/include/foundation/PxIntrinsics.h
+index 4b75756b..d80ecea4 100644
+--- a/pxshared/include/foundation/PxIntrinsics.h
++++ b/pxshared/include/foundation/PxIntrinsics.h
+@@ -34,7 +34,7 @@
+ 
+ #if PX_WINDOWS_FAMILY
+ #include "foundation/windows/PxWindowsIntrinsics.h"
+-#elif(PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4)
++#elif(PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4 || PX_FREEBSD)
+ #include "foundation/unix/PxUnixIntrinsics.h"
+ #elif PX_XBOXONE
+ #include "foundation/XboxOne/PxXboxOneIntrinsics.h"
+diff --git a/pxshared/include/foundation/PxPreprocessor.h b/pxshared/include/foundation/PxPreprocessor.h
+index 12d6147f..b19a3c7e 100644
+--- a/pxshared/include/foundation/PxPreprocessor.h
++++ b/pxshared/include/foundation/PxPreprocessor.h
+@@ -108,6 +108,8 @@ Operating system defines, see http://sourceforge.net/p/predef/wiki/OperatingSyst
+ #define PX_PS4 1
+ #elif defined(__NX__)
+ #define PX_SWITCH 1
++#elif defined(__FreeBSD__)
++#define PX_FREEBSD 1
+ #else
+ #error "Unknown operating system"
+ #endif
+@@ -174,6 +176,9 @@ define anything not defined on this platform to 0
+ #ifndef PX_LINUX
+ #define PX_LINUX 0
+ #endif
++#ifndef PX_FREEBSD
++#define PX_FREEBSD 0
++#endif
+ #ifndef PX_IOS
+ #define PX_IOS 0
+ #endif
+@@ -244,9 +249,9 @@ family shortcuts
+ // os
+ #define PX_WINDOWS_FAMILY (PX_WIN32 || PX_WIN64 || PX_UWP)
+ #define PX_MICROSOFT_FAMILY (PX_XBOXONE || PX_WINDOWS_FAMILY || PX_XBOX_SERIES_X)
+-#define PX_LINUX_FAMILY (PX_LINUX || PX_ANDROID)
++#define PX_LINUX_FAMILY (PX_LINUX || PX_ANDROID || PX_FREEBSD)
+ #define PX_APPLE_FAMILY (PX_IOS || PX_OSX)                  // equivalent to #if __APPLE__
+-#define PX_UNIX_FAMILY (PX_LINUX_FAMILY || PX_APPLE_FAMILY) // shortcut for unix/posix platforms
++#define PX_UNIX_FAMILY (PX_LINUX_FAMILY || PX_APPLE_FAMILY || PX_FREEBSD) // shortcut for unix/posix platforms
+ #if defined(__EMSCRIPTEN__)
+ #define PX_EMSCRIPTEN 1
+ #else
+@@ -284,7 +289,7 @@ Assert macro
+ DLL export macros
+ */
+ #ifndef PX_C_EXPORT
+-#if PX_WINDOWS_FAMILY || PX_LINUX
++#if PX_WINDOWS_FAMILY || PX_LINUX || PX_FREEBSD
+ #define PX_C_EXPORT extern "C"
+ #else
+ #define PX_C_EXPORT
+@@ -523,7 +528,7 @@ protected:
+ 
+ #ifndef DISABLE_CUDA_PHYSX
+ //CUDA is currently supported only on windows 
+-#define PX_SUPPORT_GPU_PHYSX ((PX_WINDOWS_FAMILY) || (PX_LINUX && PX_X64))
++#define PX_SUPPORT_GPU_PHYSX ((PX_WINDOWS_FAMILY) || ((PX_LINUX || PX_FREEBSD) && PX_X64))
+ #else
+ #define PX_SUPPORT_GPU_PHYSX 0
+ #endif
+diff --git a/pxshared/include/foundation/PxSimpleTypes.h b/pxshared/include/foundation/PxSimpleTypes.h
+index 196d9f25..c5e93f2f 100644
+--- a/pxshared/include/foundation/PxSimpleTypes.h
++++ b/pxshared/include/foundation/PxSimpleTypes.h
+@@ -44,7 +44,7 @@
+ // header
+ #endif
+ 
+-#if PX_LINUX
++#if PX_LINUX || PX_FREEBSD
+ #define __STDC_LIMIT_MACROS
+ #endif
+ 
+diff --git a/pxshared/include/foundation/unix/PxUnixIntrinsics.h b/pxshared/include/foundation/unix/PxUnixIntrinsics.h
+index 175f7fd1..c6b322d2 100644
+--- a/pxshared/include/foundation/unix/PxUnixIntrinsics.h
++++ b/pxshared/include/foundation/unix/PxUnixIntrinsics.h
+@@ -33,11 +33,11 @@
+ #include "foundation/Px.h"
+ #include "foundation/PxSharedAssert.h"
+ 
+-#if !(PX_LINUX || PX_ANDROID || PX_PS4 || PX_APPLE_FAMILY)
++#if !(PX_LINUX || PX_ANDROID || PX_PS4 || PX_APPLE_FAMILY || PX_FREEBSD)
+ #error "This file should only be included by Unix builds!!"
+ #endif
+ 
+-#if (PX_LINUX || PX_ANDROID) && !defined(__CUDACC__) && !PX_EMSCRIPTEN
++#if (PX_LINUX || PX_ANDROID || PX_FREEBSD) && !defined(__CUDACC__) && !PX_EMSCRIPTEN
+     // Linux/android and CUDA compilation does not work with std::isfnite, as it is not marked as CUDA callable
+     #include <cmath>
+     #ifndef isfinite
